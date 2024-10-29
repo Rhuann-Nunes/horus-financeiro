@@ -169,7 +169,19 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { Bar, Pie } from 'vue-chartjs'
-import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, LineElement, PointElement, Title, Tooltip, Legend, ArcElement } from 'chart.js'
+import { 
+  Chart as ChartJS, 
+  CategoryScale, 
+  LinearScale, 
+  BarElement, 
+  LineElement, 
+  PointElement, 
+  Title, 
+  Tooltip, 
+  Legend, 
+  ArcElement,
+  LineController
+} from 'chart.js'
 import { supabase } from '@/utils/supabase'
 import OpenAI from 'openai'
 
@@ -183,7 +195,8 @@ ChartJS.register(
   Title, 
   Tooltip, 
   Legend, 
-  ArcElement
+  ArcElement,
+  LineController
 )
 
 const loading = ref(true)
