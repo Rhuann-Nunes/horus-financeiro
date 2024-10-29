@@ -174,8 +174,21 @@ import { supabase } from '@/utils/supabase'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import OpenAI from 'openai'
 
-// Register ChartJS components
-ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Title, Tooltip, Legend, ArcElement, ChartDataLabels)
+// Register ChartJS components correctly
+ChartJS.register(
+  CategoryScale, 
+  LinearScale, 
+  BarElement, 
+  LineElement, 
+  PointElement, 
+  Title, 
+  Tooltip, 
+  Legend, 
+  ArcElement
+)
+
+// Register ChartDataLabels plugin separately
+ChartJS.register(ChartDataLabels)
 
 const loading = ref(true)
 const error = ref(null)
@@ -226,14 +239,10 @@ const chartOptions = {
       position: 'left',
       beginAtZero: true,
       ticks: {
-        display: false
+        display: true
       },
       grid: {
         display: true
-      },
-      suggestedMax: (context) => {
-        const maxValue = Math.max(...context.chart.data.datasets.flatMap(d => d.data));
-        return maxValue * 1.2;
       }
     },
     y1: {
@@ -245,10 +254,7 @@ const chartOptions = {
         drawOnChartArea: false
       },
       ticks: {
-        display: false
-      },
-      suggestedMax: (context) => {
-        return context.chart.scales.y.max;
+        display: true
       }
     }
   },
@@ -265,30 +271,10 @@ const chartOptions = {
     },
     datalabels: {
       rotation: -45,
-      color: (context) => {
-        return context.dataset.backgroundColor;
-      },
+      color: (context) => context.dataset.backgroundColor,
       formatter: (value) => formatCurrency(value),
-      align: (context) => {
-        const value = context.dataset.data[context.dataIndex];
-        if (value >= context.chart.scales.y.max * 0.8) {
-          return 'bottom';
-        }
-        if (value <= context.chart.scales.y.min * 1.2) {
-          return 'top';
-        }
-        return 'start';
-      },
-      anchor: (context) => {
-        const value = context.dataset.data[context.dataIndex];
-        if (value >= context.chart.scales.y.max * 0.8) {
-          return 'start';
-        }
-        if (value <= context.chart.scales.y.min * 1.2) {
-          return 'end';
-        }
-        return 'end';
-      },
+      align: 'start',
+      anchor: 'end',
       offset: 4,
       font: {
         size: 11,
