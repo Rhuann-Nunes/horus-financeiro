@@ -171,7 +171,6 @@ import { ref, onMounted, computed } from 'vue'
 import { Bar, Pie } from 'vue-chartjs'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, LineElement, PointElement, Title, Tooltip, Legend, ArcElement } from 'chart.js'
 import { supabase } from '@/utils/supabase'
-import ChartDataLabels from 'chartjs-plugin-datalabels'
 import OpenAI from 'openai'
 
 // Register ChartJS components correctly
@@ -186,9 +185,6 @@ ChartJS.register(
   Legend, 
   ArcElement
 )
-
-// Register ChartDataLabels plugin separately
-ChartJS.register(ChartDataLabels)
 
 const loading = ref(true)
 const error = ref(null)
@@ -239,7 +235,10 @@ const chartOptions = {
       position: 'left',
       beginAtZero: true,
       ticks: {
-        display: true
+        display: true,
+        font: {
+          size: 10
+        }
       },
       grid: {
         display: true
@@ -254,13 +253,32 @@ const chartOptions = {
         drawOnChartArea: false
       },
       ticks: {
-        display: true
+        display: true,
+        font: {
+          size: 10
+        }
+      }
+    },
+    x: {
+      ticks: {
+        font: {
+          size: 10
+        },
+        maxRotation: 45,
+        minRotation: 45
       }
     }
   },
   plugins: {
     legend: {
-      position: 'top'
+      position: 'top',
+      labels: {
+        font: {
+          size: 11
+        },
+        boxWidth: 12,
+        padding: 8
+      }
     },
     tooltip: {
       callbacks: {
@@ -268,23 +286,6 @@ const chartOptions = {
           return `${context.dataset.label}: ${formatCurrency(context.raw)}`
         }
       }
-    },
-    datalabels: {
-      rotation: -45,
-      color: (context) => context.dataset.backgroundColor,
-      formatter: (value) => formatCurrency(value),
-      align: 'start',
-      anchor: 'end',
-      offset: 4,
-      font: {
-        size: 11,
-        weight: 'bold'
-      },
-      textAlign: 'center',
-      display: (context) => context.dataset.data[context.dataIndex] !== 0,
-      textStrokeColor: 'white',
-      textStrokeWidth: 3,
-      borderRadius: 4
     }
   }
 }
@@ -866,7 +867,6 @@ onMounted(() => {
   height: 450px;
   position: relative;
   width: 100%;
-  max-width: 600px;
   margin: 0 auto;
   display: flex;
   justify-content: center;
@@ -1006,7 +1006,24 @@ onMounted(() => {
 /* Para telas menores que 600px */
 @media (max-width: 600px) {
   .chart-container {
-    height: 350px;
+    height: 300px;
+  }
+  
+  /* Ajusta o padding do container para telas pequenas */
+  .v-container {
+    padding: 8px !important;
+  }
+  
+  /* Reduz o espaçamento entre linhas */
+  .mt-4 {
+    margin-top: 0.5rem !important;
+  }
+}
+
+/* Para telas muito pequenas */
+@media (max-width: 320px) {
+  .chart-container {
+    height: 250px;
   }
 }
 </style>
