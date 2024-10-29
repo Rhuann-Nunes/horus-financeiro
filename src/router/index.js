@@ -9,7 +9,6 @@ import CartaoCredito from '../views/CartaoCredito.vue'
 import GrupoReceita from '../views/GrupoReceita.vue'
 import GrupoDespesa from '../views/GrupoDespesa.vue'
 import ReceitaForm from '../views/ReceitaForm.vue'
-import TesteRecursos from '../views/TesteRecursos.vue'
 import ContasPagar from '../views/ContasPagar.vue'
 import AssinaturasForm from '../views/AssinaturasForm.vue'
 import PagamentosForm from '../views/PagamentosForm.vue'
@@ -67,12 +66,6 @@ const routes = [
     path: '/receita-form',
     name: 'ReceitaForm',
     component: ReceitaForm,
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/teste-recursos',
-    name: 'TesteRecursos',
-    component: TesteRecursos,
     meta: { requiresAuth: true }
   },
   {
