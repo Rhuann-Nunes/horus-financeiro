@@ -1,6 +1,14 @@
 <template>
   <v-app id="inspire" theme="light">
-    <v-layout>
+    <template v-if="isLoading">
+      <v-container fill-height>
+        <v-row justify="center" align="center">
+          <v-progress-circular indeterminate></v-progress-circular>
+        </v-row>
+      </v-container>
+    </template>
+    
+    <template v-else>
       <template v-if="isAuthenticated">
         <v-app-bar 
           color="light-green-darken-4" 
@@ -129,21 +137,25 @@
             ></v-list-item>
           </v-list>
         </v-navigation-drawer>
-      </template>
 
-      <v-main style="padding-top: 64px">
-        <v-container 
-          :class="{
-            'pa-2': $vuetify.display.xs,
-            'pa-4': !$vuetify.display.xs,
-            'mt-2': true
-          }" 
-          fluid
-        >
-          <router-view></router-view>
-        </v-container>
-      </v-main>
-    </v-layout>
+        <v-main style="padding-top: 64px">
+          <v-container 
+            :class="{
+              'pa-2': $vuetify.display.xs,
+              'pa-4': !$vuetify.display.xs,
+              'mt-2': true
+            }" 
+            fluid
+          >
+            <router-view></router-view>
+          </v-container>
+        </v-main>
+      </template>
+      
+      <template v-else>
+        <router-view></router-view>
+      </template>
+    </template>
   </v-app>
 </template>
 
@@ -158,6 +170,7 @@ const router = useRouter()
 const store = useStore()
 const route = useRoute()
 const expandedGroup = ref(null)
+const isLoading = ref(true)
 
 const isAuthenticated = computed(() => store.getters.isAuthenticated)
 
@@ -262,7 +275,11 @@ watch(currentRoute, () => {
 }, { immediate: true })
 
 onMounted(async () => {
-  await store.dispatch('fetchSession')
+  try {
+    await store.dispatch('initializeAuth');
+  } finally {
+    isLoading.value = false;
+  }
 })
 </script>
 

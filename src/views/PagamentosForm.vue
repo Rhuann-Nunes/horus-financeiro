@@ -448,6 +448,16 @@ const savePayment = async () => {
   
   loading.value = true
   try {
+    // Get user's selected finshare
+    const { data: userData, error: userError } = await supabase
+      .from('perfisusuarios')
+      .select('selectedfinshare')
+      .eq('userid', (await supabase.auth.getUser()).data.user.id)
+      .single()
+
+    if (userError) throw userError
+    if (!userData?.selectedfinshare) throw new Error('Nenhuma finshare selecionada')
+
     let comprovanteUrl = ''
     if (paymentForm.value.comprovante) {
       const file = paymentForm.value.comprovante
@@ -475,13 +485,14 @@ const savePayment = async () => {
   
     if (parcelasError) throw parcelasError
   
-    // Insert payment records for all consolidated IDs with their original values
+    // Insert payment records with idfinshare
     for (const parcela of parcelas) {
       const { error } = await supabase.from('contaspagas').insert({
         idcontaapagar: parcela.id,
-        valor: parcela.valor, // Using the original parcela value
+        valor: parcela.valor,
         datapagamento: paymentForm.value.dataPagamento,
-        comprovante: comprovanteUrl
+        comprovante: comprovanteUrl,
+        idfinshare: userData.selectedfinshare
       })
   
       if (error) throw error

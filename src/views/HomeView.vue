@@ -385,24 +385,26 @@ const processMonthlyData = (receitas, despesas, startDate, endDate) => {
   const monthlyDespesasFuturas = []
   const monthlyApuracao = []
   
-  let currentDate = new Date(startDate)
+  // Convert dates to YYYY-MM format for comparison
+  let currentMonth = startDate.substring(0, 7)
+  const endMonth = endDate.substring(0, 7)
   let accumulatedBalance = 0
 
-  while (currentDate <= endDate) {
-    const monthKey = currentDate.toISOString().substring(0, 7)
-    months.push(formatMonthLabel(currentDate))
+  while (currentMonth <= endMonth) {
+    const [year, month] = currentMonth.split('-')
+    months.push(`${month}/${year}`)
 
     // Calculate monthly totals
     const monthReceitas = receitas
-      .filter(r => r.data.startsWith(monthKey))
+      .filter(r => r.data.startsWith(currentMonth))
       .reduce((sum, r) => sum + r.valor, 0)
 
     const monthDespesasPagas = despesas
-      .filter(d => d.dataparcela.startsWith(monthKey) && d.status === 'Pago')
+      .filter(d => d.dataparcela.startsWith(currentMonth) && d.status === 'Pago')
       .reduce((sum, d) => sum + d.valor, 0)
 
     const monthDespesasFuturas = despesas
-      .filter(d => d.dataparcela.startsWith(monthKey) && d.status === 'A pagar')
+      .filter(d => d.dataparcela.startsWith(currentMonth) && d.status === 'A pagar')
       .reduce((sum, d) => sum + d.valor, 0)
 
     monthlyReceitas.push(monthReceitas)
@@ -412,7 +414,14 @@ const processMonthlyData = (receitas, despesas, startDate, endDate) => {
     accumulatedBalance += monthReceitas - monthDespesasPagas - monthDespesasFuturas
     monthlyApuracao.push(accumulatedBalance)
 
-    currentDate.setMonth(currentDate.getMonth() + 1)
+    // Increment month
+    let [yearNum, monthNum] = currentMonth.split('-').map(Number)
+    monthNum++
+    if (monthNum > 12) {
+      monthNum = 1
+      yearNum++
+    }
+    currentMonth = `${yearNum}-${String(monthNum).padStart(2, '0')}`
   }
 
   return {
@@ -422,10 +431,6 @@ const processMonthlyData = (receitas, despesas, startDate, endDate) => {
     despesasFuturas: monthlyDespesasFuturas,
     apuracao: monthlyApuracao
   }
-}
-
-const formatMonthLabel = (date) => {
-  return date.toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' })
 }
 
 const updateChartData = (monthlyData) => {
@@ -525,55 +530,96 @@ const pieChartOptions = {
 // Add new function to fetch and process group expenses
 const fetchGrupoDespesas = async (userData) => {
   try {
-    // Buscar primeiro os grupos de despesa
+    // Buscar grupos de despesa
     const { data: grupos, error: gruposError } = await supabase
       .from('grupodespesa')
       .select('id, grupodespesa')
       .eq('finshareid', userData.selectedfinshare)
 
     if (gruposError) throw gruposError
-    
-    console.log('Grupos encontrados:', grupos)
 
-    // Buscar as despesas
+    // Obter data atual e data 6 meses atrás
+    const today = new Date()
+    const sixMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 5, 1)
+    
+    // Buscar despesas dos últimos 6 meses
     const { data: despesas, error: despesasError } = await supabase
       .from('contaspagar')
-      .select('valor, idgrupodespesa')
+      .select('valor, idgrupodespesa, dataparcela, status')
       .eq('idfinshare', userData.selectedfinshare)
+      .eq('status', 'Pago')
+      .gte('dataparcela', sixMonthsAgo.toISOString().split('T')[0])
+      .order('dataparcela', { ascending: true })
 
     if (despesasError) throw despesasError
 
-    console.log('Despesas encontradas:', despesas)
+    // Processar dados por mês e grupo
+    const monthlyData = {}
+    const monthLabels = []
+    const groupTotals = {} // Para o gráfico de pizza
 
-    // Calcular totais por grupo
-    const groupTotals = {}
-    
+    // Inicializar dados mensais
+    for (let i = 0; i < 6; i++) {
+      const date = new Date(today.getFullYear(), today.getMonth() - i, 1)
+      const monthKey = date.toISOString().slice(0, 7)
+      const monthLabel = date.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' })
+      monthlyData[monthKey] = {}
+      monthLabels.unshift(monthLabel)
+      
+      // Inicializar todos os grupos com zero
+      grupos.forEach(grupo => {
+        monthlyData[monthKey][grupo.id] = 0
+      })
+    }
+
+    // Somar despesas por mês e grupo
     despesas.forEach(despesa => {
-      const grupo = grupos.find(g => g.id === despesa.idgrupodespesa)
-      if (grupo) {
-        const groupName = grupo.grupodespesa
-        groupTotals[groupName] = (groupTotals[groupName] || 0) + despesa.valor
+      const monthKey = despesa.dataparcela.slice(0, 7)
+      if (monthlyData[monthKey]) {
+        monthlyData[monthKey][despesa.idgrupodespesa] = 
+          (monthlyData[monthKey][despesa.idgrupodespesa] || 0) + despesa.valor
+        
+        // Acumular totais por grupo para o gráfico de pizza
+        const grupo = grupos.find(g => g.id === despesa.idgrupodespesa)
+        if (grupo) {
+          groupTotals[grupo.grupodespesa] = 
+            (groupTotals[grupo.grupodespesa] || 0) + despesa.valor
+        }
       }
     })
 
-    console.log('Totais por grupo:', groupTotals)
+    // Preparar datasets para o gráfico de barras
+    const colors = [
+      '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF',
+      '#FF9F40', '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0'
+    ]
 
-    const sortedEntries = Object.entries(groupTotals)
+    const datasets = grupos.map((grupo, index) => ({
+      label: grupo.grupodespesa,
+      backgroundColor: colors[index % colors.length],
+      data: Object.values(monthlyData).map(month => month[grupo.id] || 0)
+    }))
+
+    // Ordenar datasets pelo total (maior para menor)
+    datasets.sort((a, b) => 
+      b.data.reduce((sum, val) => sum + val, 0) - 
+      a.data.reduce((sum, val) => sum + val, 0)
+    )
+
+    // Atualizar gráfico de pizza com totais gerais
+    const sortedPieEntries = Object.entries(groupTotals)
       .sort(([, a], [, b]) => b - a)
 
-    if (sortedEntries.length > 0) {
+    if (sortedPieEntries.length > 0) {
       pieChartData.value = {
-        labels: sortedEntries.map(([group]) => group),
+        labels: sortedPieEntries.map(([group]) => group),
         datasets: [{
-          label: 'Total por Grupo',
-          backgroundColor: [
-            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF',
-            '#FF9F40', '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0'
-          ],
-          data: sortedEntries.map(([, total]) => total)
+          backgroundColor: colors.slice(0, sortedPieEntries.length),
+          data: sortedPieEntries.map(([, total]) => total)
         }]
       }
     }
+
   } catch (error) {
     console.error('Erro ao buscar dados:', error)
   }
@@ -594,34 +640,34 @@ const fetchExistingChartData = async (userData) => {
     .eq('idfinshare', userData.selectedfinshare)
     .order('dataparcela', { ascending: true })
 
-  // Find earliest and latest dates
+  // Find earliest and latest dates as strings (YYYY-MM-DD)
   const allDates = [
-    ...(receitasDates?.map(r => new Date(r.data)) || []),
-    ...(despesasDates?.map(d => new Date(d.dataparcela)) || [])
-  ]
+    ...(receitasDates?.map(r => r.data) || []),
+    ...(despesasDates?.map(d => d.dataparcela) || [])
+  ].filter(Boolean)
 
   if (allDates.length === 0) {
     chartData.value.labels = []
     return
   }
 
-  const startDate = new Date(Math.min(...allDates))
-  const endDate = new Date(Math.max(...allDates))
+  const startDate = allDates.reduce((a, b) => a < b ? a : b)
+  const endDate = allDates.reduce((a, b) => a > b ? a : b)
 
   // Fetch receitas within date range
   const { data: receitas } = await supabase
     .from('receitas')
     .select('valor, data')
     .eq('idfinshare', userData.selectedfinshare)
-    .gte('data', startDate.toISOString())
+    .gte('data', startDate)
 
   // Fetch despesas within date range
   const { data: despesas } = await supabase
     .from('contaspagar')
     .select('valor, dataparcela, status')
     .eq('idfinshare', userData.selectedfinshare)
-    .gte('dataparcela', startDate.toISOString())
-    .lte('dataparcela', endDate.toISOString())
+    .gte('dataparcela', startDate)
+    .lte('dataparcela', endDate)
 
   // Process data by month
   const monthlyData = processMonthlyData(receitas || [], despesas || [], startDate, endDate)
@@ -646,8 +692,10 @@ const metas = ref([])
 const metasProcessadas = ref([])
 
 // Add new function to format dates
-const formatDate = (date) => {
-  return new Date(date).toLocaleDateString('pt-BR')
+const formatDate = (dateString) => {
+  if (!dateString) return ''
+  const [year, month, day] = dateString.split('-')
+  return `${day}/${month}/${year}`
 }
 
 // Add new function to calculate projections
@@ -659,23 +707,27 @@ const calcularProjecoesMetas = async (metasData) => {
       .eq('userid', (await supabase.auth.getUser()).data.user.id)
       .single()
 
-    // Get last 6 months of financial data
-    const sixMonthsAgo = new Date()
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
+    // Get current date as YYYY-MM-DD string
+    const today = new Date()
+    const currentDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+
+    // Get 6 months ago as YYYY-MM-DD string
+    const sixMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 6, today.getDate())
+    const sixMonthsAgoString = `${sixMonthsAgo.getFullYear()}-${String(sixMonthsAgo.getMonth() + 1).padStart(2, '0')}-${String(sixMonthsAgo.getDate()).padStart(2, '0')}`
 
     // Fetch receitas
     const { data: receitas } = await supabase
       .from('receitas')
       .select('valor, data')
       .eq('idfinshare', userData.selectedfinshare)
-      .gte('data', sixMonthsAgo.toISOString())
+      .gte('data', sixMonthsAgoString)
 
     // Fetch despesas
     const { data: despesas } = await supabase
       .from('contaspagar')
       .select('valor, dataparcela, status')
       .eq('idfinshare', userData.selectedfinshare)
-      .gte('dataparcela', sixMonthsAgo.toISOString())
+      .gte('dataparcela', sixMonthsAgoString)
 
     // Calculate monthly averages
     const receitaMedia = receitas.reduce((sum, r) => sum + r.valor, 0) / 6
@@ -691,8 +743,8 @@ const calcularProjecoesMetas = async (metasData) => {
       new Date(a.dataAlvo) - new Date(b.dataAlvo)
     )
 
-    let mesAtual = new Date()
-    let saldoDisponivel = 0
+    // Inicializar saldo disponível
+    let saldoDisponivel = saldoMes.value || 0
 
     return metasOrdenadas.map(meta => {
       const valorNecessario = meta.valor - (meta.valorAcumulado || 0)
@@ -704,19 +756,19 @@ const calcularProjecoesMetas = async (metasData) => {
         saldoDisponivel = saldoDisponivel - valorNecessario
       }
 
-      mesAtual.setMonth(mesAtual.getMonth() + Math.max(0, mesesNecessarios))
+      // Calcular data de projeção sem usar mesAtual
+      const dataProjecao = new Date(currentDate)
+      dataProjecao.setMonth(dataProjecao.getMonth() + Math.max(0, mesesNecessarios))
+      const dataProjecaoString = `${dataProjecao.getFullYear()}-${String(dataProjecao.getMonth() + 1).padStart(2, '0')}-${String(dataProjecao.getDate()).padStart(2, '0')}`
       
-      // Corrige o problema da data alvo
-      const [ano, mes, dia] = meta.dataalvo.split('-')
-      const dataAlvoObj = new Date(ano, mes - 1, dia)
-      const dataProjecaoObj = new Date(mesAtual)
-      const diffEmDias = (dataProjecaoObj - dataAlvoObj) / (1000 * 60 * 60 * 24)
-      const margemEmDias = Math.ceil(Math.abs(dataAlvoObj - new Date()) * 0.1 / (1000 * 60 * 60 * 24))
+      // Compare dates as strings
+      const diffEmDias = Math.floor((new Date(meta.dataalvo) - new Date(dataProjecaoString)) / (1000 * 60 * 60 * 24))
+      const margemEmDias = Math.ceil(Math.abs(diffEmDias * 0.1))
       
       let status
       if (Math.abs(diffEmDias) <= margemEmDias) {
         status = 'No prazo'
-      } else if (diffEmDias > margemEmDias) {
+      } else if (diffEmDias < -margemEmDias) {
         status = 'Atrasada'
       } else {
         status = 'Adiantada'
@@ -725,7 +777,7 @@ const calcularProjecoesMetas = async (metasData) => {
       return {
         ...meta,
         dataAlvo: meta.dataalvo,
-        dataProjecao: mesAtual.toISOString(),
+        dataProjecao: dataProjecaoString,
         valorAcumulado: meta.valorAcumulado || 0,
         status
       }
@@ -809,14 +861,78 @@ ${dadosMensais[dadosMensais.length - 1].apuracao < 0
   : '✓ A apuraão do último mês está positiva, continue com o bom trabalho.'}`
 
   try {
-    const insights = await generateAIInsights(relatorioConsolidado.value)
+    const insights = await generateAIInsights()
     relatorioConsolidado.value = insights
   } catch (error) {
     console.error('Erro ao gerar insights:', error)
   }
 }
 
-const generateAIInsights = async (reportData) => {
+const generateAIInsights = async () => {
+  // Preparar dados estruturados para análise
+  const analysisData = {
+    fluxoCaixa: {
+      receitaTotal: receitasMes.value,
+      despesaTotal: despesasMes.value,
+      saldoTotal: saldoMes.value,
+      despesasFuturas: despesasFuturas.value,
+      historicoMensal: chartData.value.labels.map((mes, index) => ({
+        mes,
+        receitas: chartData.value.datasets[0].data[index],
+        despesasPagas: chartData.value.datasets[1].data[index],
+        despesasFuturas: chartData.value.datasets[2].data[index],
+        apuracao: chartData.value.datasets[3].data[index],
+        ehMesFuturo: index >= chartData.value.labels.length - 
+          chartData.value.labels.slice().reverse().findIndex(m => {
+            const [mes, ano] = m.split('/')
+            const dataAtual = new Date()
+            return new Date(20 + ano, parseInt(mes) - 1) <= dataAtual
+          })
+      }))
+    },
+    despesasPorGrupo: pieChartData.value.labels.map((grupo, index) => ({
+      grupo,
+      valor: pieChartData.value.datasets[0].data[index],
+      percentual: (pieChartData.value.datasets[0].data[index] / 
+        pieChartData.value.datasets[0].data.reduce((a, b) => a + b, 0) * 100).toFixed(1)
+    })).sort((a, b) => b.valor - a.valor),
+    metas: metasProcessadas.value.map(meta => ({
+      descricao: meta.descricao,
+      valor: meta.valor,
+      valorAcumulado: meta.valorAcumulado,
+      dataAlvo: meta.dataAlvo,
+      dataProjecao: meta.dataProjecao,
+      status: meta.status,
+      progresso: ((meta.valorAcumulado / meta.valor) * 100).toFixed(1)
+    }))
+  }
+
+  // Calcular médias dos últimos 2 meses (excluindo o mês atual)
+  const mesesPassados = analysisData.fluxoCaixa.historicoMensal
+    .filter(mes => !mes.ehMesFuturo)
+    .slice(-2)
+  
+  const mediaReceitas2Meses = mesesPassados.reduce((sum, mes) => sum + mes.receitas, 0) / 2
+  const mediaDespesas2Meses = mesesPassados.reduce((sum, mes) => sum + mes.despesasPagas, 0) / 2
+
+  // Adicionar métricas calculadas
+  analysisData.metricas = {
+    mediaReceitas2Meses,
+    mediaDespesas2Meses,
+    taxaPoupancaMedia: ((mediaReceitas2Meses - mediaDespesas2Meses) / mediaReceitas2Meses * 100).toFixed(1),
+    tendenciaReceitas: calcularTendencia(mesesPassados.map(m => m.receitas)),
+    tendenciaDespesas: calcularTendencia(mesesPassados.map(m => m.despesasPagas)),
+    despesasFuturas: {
+      total: despesasFuturas.value,
+      mesesFuturos: analysisData.fluxoCaixa.historicoMensal
+        .filter(mes => mes.ehMesFuturo)
+        .map(mes => ({
+          mes: mes.mes,
+          compromissos: mes.despesasFuturas
+        }))
+    }
+  }
+
   const openai = new OpenAI({
     apiKey: process.env.VUE_APP_OPENAI_API_KEY,
     dangerouslyAllowBrowser: true
@@ -828,35 +944,58 @@ const generateAIInsights = async (reportData) => {
       messages: [
         {
           role: 'system',
-          content: 'Você é um consultor financeiro especializado em análise de dados e planejamento financeiro pessoal. Forneça análises específicas e ações práticas baseadas nos dados apresentados.'
+          content: `Você é um consultor financeiro especializado em análise de dados e planejamento financeiro pessoal.
+          Forneça análises específicas e ações práticas baseadas nos dados apresentados.
+          Use uma linguagem clara e direta, focando em recomendações acionáveis.
+          
+          Importante:
+          - Use o formato brasileiro de moeda (R$ XX.XXX,XX)
+          - Compare os últimos 2 meses com as Receitas e Despesas Totais para identificar padrões ou anomalias
+          - Considere apenas os últimos 2 meses completos para análise detalhada
+          - As despesas futuras representam compromissos já assumidos (parcelamentos, financiamentos e empréstimos)
+          - Analise se a média de receita dos últimos 2 meses é suficiente para cobrir as despesas futuras
+          - Considere o impacto dos compromissos futuros na capacidade de poupança
+          - Calcule cenários para atingir as metas:
+            * Valor ideal mensal de poupança para atingir as metas no prazo
+            * Quanto reduzir das despesas (mantendo a receita média atual)
+            * Quanto aumentar da receita (mantendo as despesas médias atuais)`
         },
         {
           role: 'user',
-          content: `${reportData}
+          content: `Dados financeiros detalhados:
+          ${JSON.stringify(analysisData, null, 2)}
 
-Analise os dados financeiros acima e forneça:
+          Analise os dados financeiros acima e forneça:
 
-1. ANÁLISE DE FLUXO DE CAIXA
-- Identifique padrões específicos de receitas e despesas
-- Calcule e comente a taxa de poupança atual (receitas - despesas / receitas)
-- Destaque meses críticos onde as despesas ultrapassaram as receitas
+          1. ANÁLISE DE FLUXO DE CAIXA
+          - Compare as Receitas/Despesas Totais com os últimos 2 meses para identificar padrões ou anomalias
+          - Identifique padrões específicos de receitas e despesas dos últimos 2 meses
+          - Calcule e comente a taxa de poupança média mensal (receitas - despesas / receitas)
+          - Analise tendências de aumento ou redução no consumo
+          - Indique se os últimos 2 meses representam um padrão normal ou são outliers
 
-2. OTIMIZAÇÃO DE DESPESAS
-- Analise os 3 maiores grupos de despesas e sugira açes específicas para redução
-- Identifique possíveis despesas duplicadas ou desnecessárias
-- Proponha um percentual ideal de redução para cada categoria principal
+          2. OTIMIZAÇÃO DE DESPESAS
+          - Analise os 3 maiores grupos de despesas e sugira ações específicas para redução
+          - Verifique se a média de receita dos últimos 2 meses é suficiente para cobrir os compromissos futuros
+          - Proponha um percentual ideal de redução para cada categoria principal
+          - Compare as despesas atuais com o histórico para identificar oportunidades de otimização
 
-3. PLANEJAMENTO DE METAS
-- Avalie a viabilidade das metas atuais considerando o fluxo de caixa
-- Sugira ajustes específicos no orçamento para atingir as metas no prazo
-- Proponha uma estratégia de priorização para metas atrasadas
+          3. PLANEJAMENTO DE METAS
+          - Calcule o valor mensal ideal de poupança necessário para atingir as metas no prazo
+          - Calcule quanto precisaria reduzir das despesas mensais (mantendo a receita média atual)
+          - Calcule quanto precisaria aumentar da receita mensal (mantendo as despesas médias atuais)
+          - Sugira ajustes específicos no orçamento para cada cenário
+          - Proponha uma estratégia de priorização para metas atrasadas
+          - Considere a sustentabilidade dos cenários baseado no histórico financeiro
 
-4. RECOMENDAÇÕES ACIONÁVEIS
-- Liste 3-5 ações específicas que podem ser implementadas nos próximos 30 dias
-- Sugira ferramentas ou métodos para melhor controle financeiro
-- Proponha metas de economia mensais com valores específicos
+          4. RECOMENDAÇÕES ACIONÁVEIS
+          - Liste ações específicas para equilibrar receitas, despesas e compromissos futuros
+          - Sugira estratégias para aumentar a capacidade de poupança
+          - Classifique qual a classe econômica do usuário em função da renda média dos últimos 2 meses
+          - Indique se as recomendações são viáveis considerando o histórico financeiro
 
-Formate a resposta de forma clara e direta, com números e percentuais específicos quando relevante.`
+          Formate a resposta de forma clara e direta, com números e percentuais específicos quando relevante.
+          Use o formato brasileiro de moeda (R$ XX.XXX,XX) em todos os valores monetários.`
         }
       ],
       temperature: 0.5,
@@ -868,6 +1007,18 @@ Formate a resposta de forma clara e direta, com números e percentuais específi
     console.error('Erro ao gerar insights:', error)
     return 'Erro ao gerar insights. Por favor, tente novamente.'
   }
+}
+
+// Função auxiliar para calcular tendência
+const calcularTendencia = (valores) => {
+  if (valores.length < 2) return 'estável'
+  const ultimoValor = valores[valores.length - 1]
+  const penultimoValor = valores[valores.length - 2]
+  const variacao = ((ultimoValor - penultimoValor) / penultimoValor * 100).toFixed(1)
+  
+  if (variacao > 5) return `aumento de ${variacao}%`
+  if (variacao < -5) return `redução de ${Math.abs(variacao)}%`
+  return 'estável'
 }
 
 onMounted(() => {

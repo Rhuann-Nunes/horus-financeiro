@@ -94,6 +94,12 @@
                 v-model="linhaDigitavel"
                 label="Linha Digitável / PIX / Informações de Pagamento"
               ></v-text-field>
+              <v-text-field
+                v-model="observacoes"
+                label="Observações"
+                multiline
+                rows="3"
+              ></v-text-field>
             </v-form>
           </v-card-text>
           <v-card-actions>
@@ -139,6 +145,7 @@ const valorTotal = ref('')
 const status = ref('')
 const comprovante = ref(null)
 const linhaDigitavel = ref('')
+const observacoes = ref('')
 
 const tiposDespesa = ['Debito', 'Credito', 'Empréstimo', 'Financiamento', 'TED', 'DOC', 'PIX', 'Dinheiro']
 const gruposDespesa = ref([])
@@ -305,41 +312,11 @@ const saveContaPagar = async () => {
           throw cartaoError
         }
 
-        const diaFechamento = cartaoData.datafechamento
-        const diaVencimento = cartaoData.datavencimento
-        
-        // Extrair ano e mês da data da despesa
-        const [ano, mes] = dataDespesa.value.split('-')
-        let parcelaAno = parseInt(ano)
-        let parcelaMes = parseInt(mes)
-        
-        // Verificar se passou do fechamento
-        const diaCompra = parseInt(dataDespesa.value.split('-')[2])
-        if (diaCompra > diaFechamento) {
-          parcelaMes += 2
-          if (parcelaMes > 12) {
-            parcelaMes -= 12
-            parcelaAno++
-          }
-        } else {
-          parcelaMes += 1
-          if (parcelaMes > 12) {
-            parcelaMes -= 12
-            parcelaAno++
-          }
-        }
-        
-        // Adicionar meses da parcela atual
-        parcelaMes += i
-        while (parcelaMes > 12) {
-          parcelaMes -= 12
-          parcelaAno++
-        }
-        
-        // Formatar a data final
-        const parcelaMesStr = parcelaMes.toString().padStart(2, '0')
-        const diaVencimentoStr = diaVencimento.toString().padStart(2, '0')
-        dataParcela = `${parcelaAno}-${parcelaMesStr}-${diaVencimentoStr}`
+        dataParcela = calculateCreditCardDueDate(
+          dataDespesa.value,
+          cartaoData.datafechamento,
+          cartaoData.datavencimento
+        )
       } else {
         // Para outros tipos de despesa, apenas adicione os meses
         const [ano, mes, dia] = dataDespesa.value.split('-')
@@ -370,7 +347,8 @@ const saveContaPagar = async () => {
         valor: valorParcela,
         comprovante: comprovanteUrl,
         linhaboleto: linhaDigitavel.value,
-        status: status.value
+        status: status.value,
+        observacoes: observacoes.value
       }
 
       console.log('Inserting conta a pagar:', newContaPagar)
@@ -393,7 +371,8 @@ const saveContaPagar = async () => {
           idcontaapagar: insertedData.id,
           valor: valorParcela,
           datapagamento: new Date().toISOString().substr(0, 10),
-          comprovante: comprovanteUrl
+          comprovante: comprovanteUrl,
+          idfinshare: userData.selectedfinshare
         })
 
         if (pagamentoError) {
@@ -424,6 +403,7 @@ const resetForm = () => {
   status.value = ''
   comprovante.value = null
   linhaDigitavel.value = ''
+  observacoes.value = ''
 }
 
 const showSnackbar = (text, color, error = null) => {
@@ -547,16 +527,29 @@ const analyzeReceiptWithGPT = async (text) => {
       messages: [
         {
           role: 'system',
-          content: 'Você é um assistente especializado em análise de comprovantes fiscais brasileiros.'
+          content: `Você é um assistente especializado em análise de comprovantes fiscais brasileiros. 
+          Você deve analisar detalhadamente comprovantes identificando informações importantes como:
+          - Data e hora da compra
+          - Itens comprados (quando possível)
+          - Forma de pagamento (especialmente se for crédito parcelado)
+          - Estabelecimento
+          - Outras informações relevantes`
         },
         {
           role: 'user',
           content: `
-          Analise este texto de comprovante fiscal e extraia APENAS:
+          Analise este texto de comprovante fiscal e extraia:
           
           - Tipo de despesa (DEVE ser um destes: ${tiposDespesa.join(', ')})
           - Grupo de despesa (DEVE ser um destes: ${gruposList})
           - Valor total (apenas o número, sem R$ ou outros caracteres)
+          - Observações (elabore uma descrição detalhada incluindo:
+            * Data e hora da compra (se disponível)
+            * Local/estabelecimento
+            * Itens principais comprados (se identificáveis)
+            * Se foi parcelado, em quantas vezes
+            * Outras informações relevantes encontradas
+          )
           
           Se não encontrar alguma informação, retorne "null" para o campo.
           
@@ -564,13 +557,14 @@ const analyzeReceiptWithGPT = async (text) => {
           tipo: [tipo encontrado ou null]
           grupo: [grupo encontrado ou null]
           valor: [valor encontrado ou null]
+          observacoes: [descrição detalhada conforme solicitado ou null]
           
           Texto do comprovante:
           ${text}
           `
         }
       ],
-      temperature: 0.2,
+      temperature: 0.4,
     })
 
     return parseGPTResponse(response.choices[0].message.content)
@@ -609,6 +603,10 @@ const updateFormFields = (analysis) => {
   if (analysis.valor && analysis.valor !== 'null') {
     valorTotal.value = analysis.valor
   }
+  
+  if (analysis.observacoes && analysis.observacoes !== 'null') {
+    observacoes.value = analysis.observacoes
+  }
 }
 
 const dataURLtoFile = (dataurl, filename) => {
@@ -621,6 +619,28 @@ const dataURLtoFile = (dataurl, filename) => {
     u8arr[n] = bstr.charCodeAt(n)
   }
   return new File([u8arr], filename, { type: mime })
+}
+
+const calculateCreditCardDueDate = (purchaseDate, closingDay, dueDay) => {
+  const [year, month, day] = purchaseDate.split('-').map(Number)
+  let dueMonth = month
+  let dueYear = year
+
+  if (day > closingDay) {
+    // If purchase is after closing date, payment is due two cycles ahead
+    dueMonth += 2
+  } else {
+    // If purchase is before or on closing date, payment is due next cycle
+    dueMonth += 1
+  }
+
+  // Adjust year if needed
+  while (dueMonth > 12) {
+    dueMonth -= 12
+    dueYear++
+  }
+
+  return `${dueYear}-${String(dueMonth).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`
 }
 
 // Add cleanup on component unmount

@@ -1,9 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
-import LoginForm from '../views/LoginForm.vue'
-import RegisterForm from '../views/RegisterForm.vue'
+import Login from '../views/Login.vue'
+import Register from '../views/Register.vue'
 import CrudFinshare from '../views/crud_finshare.vue'
-import { supabase } from '@/utils/supabase'
 import ContaBancaria from '../views/ContaBancaria.vue'
 import CartaoCredito from '../views/CartaoCredito.vue'
 import GrupoReceita from '../views/GrupoReceita.vue'
@@ -14,23 +13,26 @@ import AssinaturasForm from '../views/AssinaturasForm.vue'
 import PagamentosForm from '../views/PagamentosForm.vue'
 import MetasForm from '../views/MetasForm.vue'
 import RelatoriosImports from '../views/RelatoriosImports.vue'
+import { useStore } from 'vuex'
 
 const routes = [
   {
     path: '/',
-    name: 'LoginForm',
-    component: LoginForm
+    name: 'LoginPage',
+    component: Login,
+    meta: { requiresGuest: true }
+  },
+  {
+    path: '/register',
+    name: 'RegisterPage',
+    component: Register,
+    meta: { requiresGuest: true }
   },
   {
     path: '/HomeView',
     name: 'HomeView',
     component: HomeView,
     meta: { requiresAuth: true }
-  },
-  {
-    path: '/RegisterForm',
-    name: 'RegisterForm',
-    component: RegisterForm
   },
   {
     path: '/crud_finshare',
@@ -106,15 +108,22 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to, from, next) => {
-  const { data: { session } } = await supabase.auth.getSession()
-
-  if (to.meta.requiresAuth && !session) {
-    next({ name: 'LoginForm' })
-  } else if (to.name === 'LoginForm' && session) {
-    next({ name: 'HomeView' })
-  } else {
-    next()
+  const store = useStore()
+  const isAuthenticated = store.getters.isAuthenticated
+  
+  // Se a rota requer autenticação e o usuário não está autenticado
+  if (to.meta.requiresAuth && !isAuthenticated) {
+    next('/')
+    return
   }
+  
+  // Se a rota é para guests (login/register) e o usuário está autenticado
+  if (to.meta.requiresGuest && isAuthenticated) {
+    next('/HomeView')
+    return
+  }
+  
+  next()
 })
 
 export default router

@@ -46,11 +46,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { supabase } from '@/utils/supabase';
+import { useStore } from 'vuex';
 
 const router = useRouter();
+const store = useStore();
 const email = ref('');
 const password = ref('');
 const loading = ref(false);
@@ -58,37 +59,18 @@ const snackbar = ref(false);
 const snackbarText = ref('');
 const snackbarColor = ref('');
 
-onMounted(async () => {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-      router.push('/HomeView');
-    }
-  } catch (error) {
-    console.error('Erro ao verificar sessão:', error);
-  }
-});
-
-
 const handleLogin = async () => {
   loading.value = true;
   try {
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { success, error } = await store.dispatch('login', {
       email: email.value,
-      password: password.value,
+      password: password.value
     });
 
-    if (error) {
-      if (error.message === 'Invalid login credentials') {
-        showSnackbar('Usuário não registrado na base Hórus', 'error');
-      } else {
-        showSnackbar(error.message, 'error');
-      }
-    } else if (data.user) {
-      showSnackbar('Login successful', 'success');
-      setTimeout(() => {
-        router.push('/HomeView');
-      }, 1500);
+    if (success) {
+      router.push('/HomeView');
+    } else {
+      showSnackbar(error || 'Login failed', 'error');
     }
   } catch (error) {
     showSnackbar('An unexpected error occurred', 'error');
@@ -98,7 +80,7 @@ const handleLogin = async () => {
 };
 
 const goToRegister = () => {
-  router.push('/RegisterForm');
+  router.push('/register');
 };
 
 const showSnackbar = (text, color) => {
@@ -106,4 +88,4 @@ const showSnackbar = (text, color) => {
   snackbarColor.value = color;
   snackbar.value = true;
 };
-</script>
+</script> 

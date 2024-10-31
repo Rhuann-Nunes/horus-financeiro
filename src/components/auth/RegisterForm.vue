@@ -68,9 +68,12 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, defineEmits } from 'vue';
 import { useRouter } from 'vue-router';
-import { supabase } from '@/utils/supabase'; // Certifique-se de que o caminho está correto
+import { supabase } from '@/utils/supabase';
+
+const emit = defineEmits(['auth-success']);
+const router = useRouter();
 
 const email = ref('');
 const password = ref('');
@@ -78,8 +81,6 @@ const confirmPassword = ref('');
 const username = ref('');
 const telefone = ref('');
 const loading = ref(false);
-const router = useRouter();
-
 const snackbar = ref(false);
 const snackbarText = ref('');
 const snackbarColor = ref('');
@@ -118,7 +119,8 @@ const handleRegister = async () => {
         // Create initial finshare and update selected finshare
         await createInitialFinshareAndUpdateSelection(perfilData.id);
         
-        showSnackbar('Registration successful. Please check your email to confirm your account.', 'success');
+        showSnackbar('Registration successful. Please check your email.', 'success');
+        emit('auth-success');
         setTimeout(() => {
           router.push('/');
         }, 3000);
@@ -185,7 +187,7 @@ const createInitialFinshareAndUpdateSelection = async (userId) => {
       throw groupsError;
     }
 
-    // Update the selectedfinshare column in perfisusuarios with the created finshare ID
+    // Update the selectedfinshare column in perfisusuarios
     const { error: updateError } = await supabase
       .from('perfisusuarios')
       .update({ selectedfinshare: finshareData.id })
@@ -194,8 +196,6 @@ const createInitialFinshareAndUpdateSelection = async (userId) => {
     if (updateError) {
       throw updateError;
     }
-
-    console.log('Finshare created and selected as default:', finshareData.id);
   } catch (error) {
     console.error('Error in creating and selecting initial finshare:', error);
     showSnackbar('Error creating initial finshare', 'error');
@@ -211,4 +211,4 @@ const showSnackbar = (text, color) => {
   snackbarColor.value = color;
   snackbar.value = true;
 };
-</script>
+</script> 
