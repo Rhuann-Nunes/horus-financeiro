@@ -395,31 +395,41 @@ const fetchDespesas = async () => {
     const consolidatedMap = new Map()
   
     for (const despesa of despesas) {
-      const key = despesa.idcartaocredito 
-        ? `credito_${despesa.idcartaocredito}_${despesa.dataparcela}`
-        : `${despesa.idgrupodespesa}_${despesa.dataparcela}`
+      if (despesa.idcartaocredito) {
+        // Mantém a consolidação apenas para cartões de crédito
+        const key = `credito_${despesa.idcartaocredito}_${despesa.dataparcela}`
   
-      if (!consolidatedMap.has(key)) {
-        let grupoNome
-        if (despesa.idcartaocredito) {
+        if (!consolidatedMap.has(key)) {
           const cartao = cartoes.find(c => c.id === despesa.idcartaocredito)
-          grupoNome = cartao ? `Fatura Cartão ${cartao.banco} - ${cartao.apelido} (${cartao.quatro_ultimos_digitos})` : 'Cartão não encontrado'
-        } else {
-          const grupo = grupos.find(g => g.id === despesa.idgrupodespesa)
-          grupoNome = grupo ? grupo.grupodespesa : 'Grupo não encontrado'
-        }
+          const grupoNome = cartao 
+            ? `Fatura Cartão ${cartao.banco} - ${cartao.apelido} (${cartao.quatro_ultimos_digitos})` 
+            : 'Cartão não encontrado'
   
-        consolidatedMap.set(key, {
+          consolidatedMap.set(key, {
+            ids: [despesa.id],
+            grupo: grupoNome,
+            tipo: despesa.tipodespesa,
+            valor: despesa.valor,
+            data: despesa.dataparcela
+          })
+        } else {
+          const existing = consolidatedMap.get(key)
+          existing.ids.push(despesa.id)
+          existing.valor += despesa.valor
+        }
+      } else {
+        // Para despesas que não são de cartão, adiciona individualmente
+        const grupo = grupos.find(g => g.id === despesa.idgrupodespesa)
+        const grupoNome = grupo ? grupo.grupodespesa : 'Grupo não encontrado'
+        
+        // Usa o ID da despesa como chave para garantir unicidade
+        consolidatedMap.set(`despesa_${despesa.id}`, {
           ids: [despesa.id],
           grupo: grupoNome,
           tipo: despesa.tipodespesa,
           valor: despesa.valor,
           data: despesa.dataparcela
         })
-      } else {
-        const existing = consolidatedMap.get(key)
-        existing.ids.push(despesa.id)
-        existing.valor += despesa.valor
       }
     }
   
